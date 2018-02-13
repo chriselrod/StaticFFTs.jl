@@ -1,5 +1,13 @@
+__precompile__()
+
 module StaticFFTs
 
-# package code goes here
+using Primes, StaticArrays
+
+export fft
+
+include("construct_fft.jl")
+include("interface.jl")
+
 
 end # module
