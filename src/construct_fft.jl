@@ -34,7 +34,7 @@ function shrink_tree!(x::fft_meta1)
 end
 
 ### The plan here is to traverse the remaining tree.
-function Base.start(x::fft_meta1)
+function initial_iterate(x::fft_meta1)
     shrink_tree!(x)
  #   if length(iter) > 0
     iter = x.inds
@@ -43,7 +43,8 @@ function Base.start(x::fft_meta1)
     iter[end] = 0
     iter
 end
-function Base.next(x::fft_meta1, iter)
+function Base.iterate(x::fft_meta1, iter = initial_iterate(x))
+    done(x, iter) && return nothing
     for j ∈ length(iter):-1:1
         if iter[j] == x.factors[j]
             iter[j] = 1
@@ -54,7 +55,7 @@ function Base.next(x::fft_meta1, iter)
     end
     iter, iter
 end
-function Base.done(x::fft_meta1, iter)
+function done(x::fft_meta1, iter)
     done = true
     for j ∈ eachindex(iter)
         if iter[j] != x.factors[j]
@@ -96,18 +97,18 @@ function initial_expr!(expr, x::fft_meta1, i, iter, output = :o_, input = :x_, :
 end
 function initial_expr!(expr, off, gap, N, i, output = :o_, input = :x_, ::Type{T} = Float64) where T
     for j ∈ 0:N-1
-        push!(expr.args[2].args[2].args, 
+        push!(expr.args,
                 :( $(Symbol( output, 1+i*N+j )) = $(Symbol(input, off)) +
                     $(ω(N, j)) * $(Symbol(input, off+gap)) ) )
         for k ∈ 2:N-1 ##push to new line with += to avoid allocation.
-            push!(expr.args[2].args[2].args, 
+            push!(expr.args,
             :( $(Symbol( output, 1+i*N+j )) +=   $(ω(N, j*k)) * $(Symbol(input, off+gap*k) ) ) )
         end
     end
     expr
 end
 function gen_initial_expr(fm::fft_meta1, ::Type{T} = Float64) where T
-    expr = quote @fastmath begin end end
+    expr = quote end
     for (i,iter) ∈ enumerate(fm)
         initial_expr!(expr, fm, i-1, iter, :o_, :x_, T)
     end
@@ -128,11 +129,11 @@ function combine!(expr, last_N, current_N, cumulative_N, i, input, output, ::Typ
     offset = i*N
     ind = 0
     for l ∈ 1:current_N, j ∈ 1:cumulative_N
-        push!(expr.args[2].args[2].args, :( $(Symbol(output, 1+ind+offset )) =
+        push!(expr.args, :( $(Symbol(output, 1+ind+offset )) =
                 $(Symbol(input, offset+j)) +
                 $(ω(N, ind)) * $(Symbol(input, offset+j+cumulative_N)) ) )
         for k ∈ 2:current_N-1 ##push to new line with += to avoid allocation.
-            push!(expr.args[2].args[2].args,
+            push!(expr.args,
                 :( $(Symbol(output, 1+ind+offset )) += ( $(ω(N, ind*k)) ) * $(Symbol(input, offset+j+cumulative_N*k) ))) 
 
         end
@@ -149,10 +150,11 @@ function fft_expression(N::Int, ::Type{T}, ::Type{A}) where {T,A}
         next_iter!(expr, fm, T)
     end
     last_out = (:o_,:u_)[2-fm.status[4]%2]
-    out = :( $A( ( $(Symbol(last_out, 1)), $(Symbol(last_out, 2))) ) )
-    for i ∈ 3:N
-        push!(out.args[2].args, Symbol( last_out, i ))
+    out = Expr(:call, A)
+    for i ∈ 1:N
+        push!(out.args, Symbol( last_out, i ))
     end
+    expr = quote @fastmath begin $expr end end
     push!(expr.args, out)
     expr
 end
